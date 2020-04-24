@@ -85,13 +85,13 @@ fn main() -> std::io::Result<()> {
 
 fn increase_pattern(state: &mut ParsingState) {
     if state.cur_range_start.is_none() {
-        state.cur_range_start = state.cur_timestamp.clone();
+        state.cur_range_start = state.cur_timestamp;
     }
-    state.cur_range_end = state.cur_timestamp.clone();
+    state.cur_range_end = state.cur_timestamp;
     state.match_count += 1;
 }
 
-fn finish_pattern(state: &mut ParsingState, patterns: &Vec<String>) {
+fn finish_pattern(state: &mut ParsingState, patterns: &[String]) {
     if state.match_count > 0 {
         println!(
             "{} -> {}: [{}] {} matches",
