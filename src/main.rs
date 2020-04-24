@@ -36,7 +36,7 @@ fn main() -> std::io::Result<()> {
     let fname = fname.unwrap();
 
     let datetime_regex = Regex::new(r"^\d\d-\w{3}-\d{4} \d\d:\d\d:\d\d\.\d{3}").unwrap();
-    let date_fmt = "%d-%b-%Y %T.%f %z";
+    let date_fmt = "%d-%b-%Y %T.%f";
 
     let file = File::open(fname)?;
     let reader = BufReader::new(file);
@@ -52,10 +52,11 @@ fn main() -> std::io::Result<()> {
         if datetime_regex.is_match(&line) {
             let timestamp_str = datetime_regex.find(&line).unwrap().as_str();
             state.cur_timestamp = Some(
-                DateTime::parse_from_str(&(timestamp_str.to_string() + " +0000"), date_fmt)
-                    .ok()
-                    .unwrap()
-                    .into(),
+                Utc.from_utc_datetime(
+                    &NaiveDateTime::parse_from_str(timestamp_str, date_fmt)
+                        .ok()
+                        .unwrap(),
+                ),
             );
             if state.cur_range_start.is_some()
                 && state.cur_timestamp.unwrap() - state.cur_range_end.unwrap()
