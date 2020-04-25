@@ -5,24 +5,16 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 
-struct ParsingState {
-    cur_range_start: Option<DateTime<Utc>>,
-    cur_range_end: Option<DateTime<Utc>>,
-    cur_timestamp: Option<DateTime<Utc>>,
-    cur_pattern: Option<usize>,
+struct InRangeState {
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    cur_pattern: usize,
     match_count: usize,
 }
 
-impl ParsingState {
-    fn new() -> ParsingState {
-        ParsingState {
-            cur_range_start: None,
-            cur_range_end: None,
-            cur_timestamp: None,
-            cur_pattern: None,
-            match_count: 0,
-        }
-    }
+enum ParsingState {
+    NotInRange,
+    InRange(InRangeState),
 }
 
 fn main() -> std::io::Result<()> {
@@ -46,62 +38,67 @@ fn main() -> std::io::Result<()> {
         .map(|p| Regex::new(&p).expect("Invalid pattern regex"))
         .collect();
 
-    let mut state = ParsingState::new();
+    let mut cur_timestamp = None::<DateTime<Utc>>;
+    let mut state = ParsingState::NotInRange;
     for line in reader.lines() {
         let line = line?;
         if let Some(timestamp_str) = datetime_regex.find(&line).map(|m| m.as_str()) {
-            state.cur_timestamp = Some(
-                Utc.from_utc_datetime(
-                    &NaiveDateTime::parse_from_str(timestamp_str, date_fmt)
-                        .ok()
-                        .unwrap(),
-                ),
+            let ts = Utc.from_utc_datetime(
+                &NaiveDateTime::parse_from_str(timestamp_str, date_fmt)
+                    .ok()
+                    .unwrap(),
             );
-            if state.cur_range_start.is_some()
-                && state.cur_timestamp.unwrap() - state.cur_range_end.unwrap()
-                    < chrono::Duration::minutes(5)
-            {
-                // stays in the current range
-            } else {
-                finish_pattern(&mut state, &patterns);
+            cur_timestamp = Some(ts);
+            match state {
+                ParsingState::InRange(ref st) if ts - st.end > chrono::Duration::minutes(5) => {
+                    // too long interval, close the current range
+                    print_pattern(&st, &patterns);
+                    state = ParsingState::NotInRange;
+                }
+                _ => {}
             }
         }
-        match pattern_regexes.iter().position(|p| p.is_match(&line)) {
-            Some(idx) if Some(idx) == state.cur_pattern => {
-                // prolonging the current pattern
-                increase_pattern(&mut state);
+        if let Some(cur_timestamp) = cur_timestamp {
+            match (
+                pattern_regexes.iter().position(|p| p.is_match(&line)),
+                &mut state,
+            ) {
+                (Some(idx), ParsingState::InRange(ref mut st)) if idx == st.cur_pattern => {
+                    // prolonging the current pattern
+                    st.end = cur_timestamp;
+                    st.match_count += 1;
+                }
+                (Some(idx), ParsingState::InRange(st)) => {
+                    // hit a different pattern
+                    print_pattern(&st, &patterns);
+                    state = ParsingState::InRange(InRangeState {
+                        start: cur_timestamp,
+                        end: cur_timestamp,
+                        cur_pattern: idx,
+                        match_count: 1,
+                    });
+                }
+                (Some(idx), ParsingState::NotInRange) => {
+                    state = ParsingState::InRange(InRangeState {
+                        start: cur_timestamp,
+                        end: cur_timestamp,
+                        cur_pattern: idx,
+                        match_count: 1,
+                    });
+                }
+                (None, _) => {}
             }
-            Some(idx) => {
-                // hit a different pattern
-                finish_pattern(&mut state, &patterns);
-                state.cur_pattern = Some(idx);
-                increase_pattern(&mut state);
-            }
-            _ => {}
         }
     }
     Ok(())
 }
 
-fn increase_pattern(state: &mut ParsingState) {
-    if state.cur_range_start.is_none() {
-        state.cur_range_start = state.cur_timestamp;
-    }
-    state.cur_range_end = state.cur_timestamp;
-    state.match_count += 1;
-}
-
-fn finish_pattern(state: &mut ParsingState, patterns: &[String]) {
-    if state.match_count > 0 {
-        println!(
-            "{} -> {}: [{}] {} matches",
-            state.cur_range_start.unwrap().format("%Y-%m-%d %T"),
-            state.cur_range_end.unwrap().format("%Y-%m-%d %T"),
-            patterns[state.cur_pattern.unwrap()],
-            state.match_count
-        );
-    }
-    state.cur_range_start = None;
-    state.cur_range_end = None;
-    state.match_count = 0;
+fn print_pattern(state: &InRangeState, patterns: &[String]) {
+    println!(
+        "{} -> {}: [{}] {} matches",
+        state.start.format("%Y-%m-%d %T"),
+        state.end.format("%Y-%m-%d %T"),
+        patterns[state.cur_pattern],
+        state.match_count
+    );
 }
