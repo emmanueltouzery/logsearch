@@ -49,8 +49,7 @@ fn main() -> std::io::Result<()> {
     let mut state = ParsingState::new();
     for line in reader.lines() {
         let line = line?;
-        if datetime_regex.is_match(&line) {
-            let timestamp_str = datetime_regex.find(&line).unwrap().as_str();
+        if let Some(timestamp_str) = datetime_regex.find(&line).map(|m| m.as_str()) {
             state.cur_timestamp = Some(
                 Utc.from_utc_datetime(
                     &NaiveDateTime::parse_from_str(timestamp_str, date_fmt)
