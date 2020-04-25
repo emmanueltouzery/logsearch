@@ -42,6 +42,8 @@ fn main() -> std::io::Result<()> {
     let mut state = ParsingState::NotInRange;
     for line in reader.lines() {
         let line = line?;
+
+        // extract the timestamp from the line if present
         if let Some(timestamp_str) = datetime_regex.find(&line).map(|m| m.as_str()) {
             let ts = Utc.from_utc_datetime(
                 &NaiveDateTime::parse_from_str(timestamp_str, date_fmt)
@@ -58,6 +60,8 @@ fn main() -> std::io::Result<()> {
                 _ => {}
             }
         }
+
+        // if we have a timestamp, search for one of the patterns in the line
         if let Some(cur_timestamp) = cur_timestamp {
             match (
                 pattern_regexes.iter().position(|p| p.is_match(&line)),
