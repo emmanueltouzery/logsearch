@@ -8,7 +8,7 @@ use std::io::BufReader;
 struct InRangeState {
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    cur_pattern: usize,
+    cur_pattern_idx: usize,
     match_count: usize,
 }
 
@@ -67,7 +67,7 @@ fn main() -> std::io::Result<()> {
                 pattern_regexes.iter().position(|p| p.is_match(&line)),
                 &mut state,
             ) {
-                (Some(idx), ParsingState::InRange(ref mut st)) if idx == st.cur_pattern => {
+                (Some(idx), ParsingState::InRange(ref mut st)) if idx == st.cur_pattern_idx => {
                     // prolonging the current pattern
                     st.end = cur_timestamp;
                     st.match_count += 1;
@@ -78,7 +78,7 @@ fn main() -> std::io::Result<()> {
                     state = ParsingState::InRange(InRangeState {
                         start: cur_timestamp,
                         end: cur_timestamp,
-                        cur_pattern: idx,
+                        cur_pattern_idx: idx,
                         match_count: 1,
                     });
                 }
@@ -86,7 +86,7 @@ fn main() -> std::io::Result<()> {
                     state = ParsingState::InRange(InRangeState {
                         start: cur_timestamp,
                         end: cur_timestamp,
-                        cur_pattern: idx,
+                        cur_pattern_idx: idx,
                         match_count: 1,
                     });
                 }
@@ -102,7 +102,7 @@ fn print_pattern(state: &InRangeState, patterns: &[String]) {
         "{} -> {}: [{}] {} matches",
         state.start.format("%Y-%m-%d %T"),
         state.end.format("%Y-%m-%d %T"),
-        patterns[state.cur_pattern],
+        patterns[state.cur_pattern_idx],
         state.match_count
     );
 }
