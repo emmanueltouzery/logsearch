@@ -6,18 +6,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 mod dateformat;
 
-struct InRangeState {
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    pattern_idx: usize,
-    match_count: usize,
-}
-
-enum ParsingState {
-    NotInRange,
-    InRange(InRangeState),
-}
-
 fn main() -> std::io::Result<()> {
     let mut args = env::args().skip(1);
     // https://stackoverflow.com/a/49964042/516188
@@ -58,6 +46,18 @@ fn main() -> std::io::Result<()> {
         .collect();
 
     process_input(reader, is_display_preview, &patterns, &pattern_regexes)
+}
+
+struct InRangeState {
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    pattern_idx: usize,
+    match_count: usize,
+}
+
+enum ParsingState {
+    NotInRange,
+    InRange(InRangeState),
 }
 
 fn process_input(
