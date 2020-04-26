@@ -57,6 +57,15 @@ fn main() -> std::io::Result<()> {
         .map(|p| Regex::new(&p).expect("Invalid pattern regex"))
         .collect();
 
+    process_input(reader, is_display_preview, &patterns, &pattern_regexes)
+}
+
+fn process_input(
+    reader: Box<dyn BufRead>,
+    is_display_preview: bool,
+    patterns: &[String],
+    pattern_regexes: &[Regex],
+) -> std::io::Result<()> {
     let mut lines = reader.lines();
     let mut cur_timestamp = None::<DateTime<Utc>>;
     let mut state = ParsingState::NotInRange;
