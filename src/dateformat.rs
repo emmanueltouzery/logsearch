@@ -3,7 +3,9 @@
 use chrono::prelude::*;
 use regex::Regex;
 
-const KNOWN_FORMATS: &[(&'static str, fn(&str) -> DateTime<Utc>)] = &[
+type DateTimeParser = fn(&str) -> DateTime<Utc>;
+
+const KNOWN_FORMATS: &[(&str, DateTimeParser)] = &[
     // "23-Apr-2020 00:00:00.001" -- tomee log format
     (r"[0-2]\d-\w{3}-\d{4} \d\d:\d\d:\d\d\.\d{3}", parse_tomee),
     // "Apr 26 10:05:02" -- journalctl

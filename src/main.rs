@@ -21,6 +21,10 @@ enum ParsingState {
 fn main() -> std::io::Result<()> {
     let mut args = env::args().skip(1);
     let fname = args.next();
+    if fname.as_deref() == Some("--version") {
+        println!("version {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(1);
+    }
     let patterns: Vec<String> = args.collect();
     if patterns.is_empty() {
         eprintln!("parameters: <log filename> <pattern> [extra patterns]");
