@@ -20,20 +20,37 @@ enum ParsingState {
 
 fn main() -> std::io::Result<()> {
     let mut args = env::args().skip(1);
-    let fname = args.next();
-    if fname.as_deref() == Some("--version") {
+    // https://stackoverflow.com/a/49964042/516188
+    let is_piped_input = !atty::is(atty::Stream::Stdin);
+    let reader: Box<dyn BufRead> = if is_piped_input {
+        // stdin is not a tty, reading from it
+        Box::new(BufReader::new(std::io::stdin()))
+    } else {
+        // stdin is a tty, the first param must be a filename
+        match args.next() {
+            None => display_help_and_exit(),
+            Some(fname) => {
+                let file = File::open(fname)?;
+                Box::new(BufReader::new(file))
+            }
+        }
+    };
+
+    // if the input is piped (eg the data may be coming in realtime)
+    // and the output is not (we are displaying to a terminal), we will
+    // display realtime progress info to the user, that we'll replace
+    // with final data when we get it.
+    let is_piped_output = !atty::is(atty::Stream::Stdout);
+    let is_display_preview = is_piped_input && !is_piped_output;
+
+    let patterns: Vec<String> = args.collect();
+    if patterns.contains(&"--version".to_string()) {
         println!("version {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(1);
     }
-    let patterns: Vec<String> = args.collect();
     if patterns.is_empty() {
-        eprintln!("parameters: <log filename> <pattern> [extra patterns]");
-        std::process::exit(1);
+        display_help_and_exit();
     }
-    let fname = fname.unwrap();
-
-    let file = File::open(fname)?;
-    let reader = BufReader::new(file);
 
     let pattern_regexes: Vec<_> = patterns
         .iter()
@@ -60,7 +77,7 @@ fn main() -> std::io::Result<()> {
             match state {
                 ParsingState::InRange(ref st) if ts - st.end > chrono::Duration::minutes(5) => {
                     // too long interval, close the current range
-                    print_pattern(&st, &patterns);
+                    print_pattern(is_display_preview, &st, &patterns);
                     state = ParsingState::NotInRange;
                 }
                 _ => {}
@@ -80,31 +97,54 @@ fn main() -> std::io::Result<()> {
                 }
                 (Some(idx), ParsingState::InRange(st)) => {
                     // hit a different pattern
-                    print_pattern(&st, &patterns);
-                    state = ParsingState::InRange(InRangeState {
-                        start: cur_timestamp,
-                        end: cur_timestamp,
-                        pattern_idx: idx,
-                        match_count: 1,
-                    });
+                    print_pattern(is_display_preview, &st, &patterns);
+                    state = start_range(is_display_preview, idx, cur_timestamp, &patterns)?;
                 }
                 (Some(idx), ParsingState::NotInRange) => {
-                    state = ParsingState::InRange(InRangeState {
-                        start: cur_timestamp,
-                        end: cur_timestamp,
-                        pattern_idx: idx,
-                        match_count: 1,
-                    });
+                    state = start_range(is_display_preview, idx, cur_timestamp, &patterns)?;
                 }
                 (None, _) => {}
             }
         }
     }
+    if let ParsingState::InRange(st) = state {
+        // print the final contents of the pattern when the input finishes
+        print_pattern(is_display_preview, &st, &patterns);
+    }
     Ok(())
 }
 
+fn display_help_and_exit() -> ! {
+    eprintln!("parameters: <log filename> <pattern> [extra patterns]\nif data is passed by the standard input (piped in) then no need to pass log filename.");
+    std::process::exit(1);
+}
+
+fn start_range(
+    is_display_preview: bool,
+    idx: usize,
+    cur_timestamp: DateTime<Utc>,
+    patterns: &[String],
+) -> std::io::Result<ParsingState> {
+    if is_display_preview {
+        // this info may be overwritten later if the input is piped
+        // hence we don't send a \n
+        print!(
+            "{} -> ? [{}] -- ongoing",
+            cur_timestamp.format("%Y-%m-%d %T"),
+            patterns[idx]
+        );
+        std::io::stdout().flush()?;
+    }
+    Ok(ParsingState::InRange(InRangeState {
+        start: cur_timestamp,
+        end: cur_timestamp,
+        pattern_idx: idx,
+        match_count: 1,
+    }))
+}
+
 fn guess_dateformat(
-    lines: &mut std::io::Lines<BufReader<File>>,
+    lines: &mut std::io::Lines<Box<dyn BufRead>>,
 ) -> std::io::Result<Option<dateformat::DateFormat>> {
     let mut datefmt_attempts = 0;
     for line in lines {
@@ -123,7 +163,11 @@ fn guess_dateformat(
     Ok(None)
 }
 
-fn print_pattern(state: &InRangeState, patterns: &[String]) {
+fn print_pattern(is_display_preview: bool, state: &InRangeState, patterns: &[String]) {
+    if is_display_preview {
+        // \r to clear the stdout if we had a piped output & progress report
+        print!("\r");
+    }
     println!(
         "{} -> {}: [{}] {} matches",
         state.start.format("%Y-%m-%d %T"),
