@@ -4,6 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+mod dateformat;
 
 struct InRangeState {
     start: DateTime<Utc>,
@@ -27,9 +28,6 @@ fn main() -> std::io::Result<()> {
     }
     let fname = fname.unwrap();
 
-    let datetime_regex = Regex::new(r"^\d\d-\w{3}-\d{4} \d\d:\d\d:\d\d\.\d{3}").unwrap();
-    let date_fmt = "%d-%b-%Y %T.%f";
-
     let file = File::open(fname)?;
     let reader = BufReader::new(file);
 
@@ -38,18 +36,22 @@ fn main() -> std::io::Result<()> {
         .map(|p| Regex::new(&p).expect("Invalid pattern regex"))
         .collect();
 
+    let mut lines = reader.lines();
     let mut cur_timestamp = None::<DateTime<Utc>>;
     let mut state = ParsingState::NotInRange;
-    for line in reader.lines() {
-        let line = line?;
+    let datefmt = match guess_dateformat(&mut lines)? {
+        Some(f) => f,
+        None => {
+            eprintln!("Gave up guessing the date format");
+            std::process::exit(1);
+        }
+    };
 
+    for line in lines {
+        let line = line?;
         // extract the timestamp from the line if present
-        if let Some(timestamp_str) = datetime_regex.find(&line).map(|m| m.as_str()) {
-            let ts = Utc.from_utc_datetime(
-                &NaiveDateTime::parse_from_str(timestamp_str, date_fmt)
-                    .ok()
-                    .unwrap(),
-            );
+        if let Some(timestamp_str) = datefmt.regex.find(&line).map(|m| m.as_str()) {
+            let ts = (datefmt.parser)(timestamp_str);
             cur_timestamp = Some(ts);
             match state {
                 ParsingState::InRange(ref st) if ts - st.end > chrono::Duration::minutes(5) => {
@@ -95,6 +97,26 @@ fn main() -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn guess_dateformat(
+    lines: &mut std::io::Lines<BufReader<File>>,
+) -> std::io::Result<Option<dateformat::DateFormat>> {
+    let mut datefmt_attempts = 0;
+    for line in lines {
+        let line = line?;
+
+        let datefmt = dateformat::guess_date_format(&line);
+        if datefmt.is_none() {
+            datefmt_attempts += 1;
+            if datefmt_attempts >= 5 {
+                break;
+            }
+        } else {
+            return Ok(datefmt);
+        }
+    }
+    Ok(None)
 }
 
 fn print_pattern(state: &InRangeState, patterns: &[String]) {
