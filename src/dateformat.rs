@@ -15,7 +15,7 @@ pub struct DateFormat {
     pub regex: Regex,
 }
 
-const KNOWN_FORMATS: &[&'static str] = &[
+const KNOWN_FORMATS: &[&str] = &[
     // "23-Apr-2020 00:00:00.001" -- tomee log format
     "%d-%b-%Y %T%.3f",
     // "Apr 26 10:05:02" -- journalctl
@@ -28,7 +28,7 @@ const KNOWN_FORMATS: &[&'static str] = &[
 
 pub fn guess_date_format(line: &str) -> Option<DateFormat> {
     let format = KNOWN_FORMATS
-        .into_iter()
+        .iter()
         .find(|f| regex_for_format_str(f).is_match(line));
     format.map(|f| build_custom_format(*f))
 }
@@ -87,7 +87,7 @@ fn regex_for_format_str(fmt: &str) -> Regex {
             .replace("%b", r"\w{3}"),
         // skipped %c ctime and %+ iso 8601+rfc3339. they'd better fit as autodetect i think.
     )
-    .expect(&format!("Invalid format string: {}", fmt))
+    .unwrap_or_else(|_| panic!("Invalid format string: {}", fmt))
 }
 
 pub fn build_custom_format(dtfmt: &str) -> DateFormat {

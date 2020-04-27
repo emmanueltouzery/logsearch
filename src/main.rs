@@ -74,7 +74,7 @@ enum ParsingState {
 }
 
 fn process_input(
-    reader: &mut Box<dyn BufRead>,
+    reader: &mut dyn BufRead,
     is_display_preview: bool,
     patterns: &[String],
     pattern_regexes: &[Regex],
@@ -178,9 +178,7 @@ fn start_range(
     }))
 }
 
-fn guess_dateformat(
-    reader: &mut Box<dyn BufRead>,
-) -> std::io::Result<Option<dateformat::DateFormat>> {
+fn guess_dateformat(reader: &mut dyn BufRead) -> std::io::Result<Option<dateformat::DateFormat>> {
     let mut buffer = String::new();
     let mut datefmt_attempts = 0;
     while reader.read_line(&mut buffer)? != 0 {
