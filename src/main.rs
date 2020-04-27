@@ -17,6 +17,8 @@ fn main() -> std::io::Result<()> {
         // stdin is a tty, the first param must be a filename
         match args.next() {
             None => display_help_and_exit(),
+            Some(v) if v == "--help" => display_help_and_exit(),
+            Some(v) if v == "--version" => display_version_and_exit(),
             Some(fname) => {
                 let file = File::open(fname)?;
                 Box::new(BufReader::new(file))
@@ -33,8 +35,7 @@ fn main() -> std::io::Result<()> {
 
     let mut patterns: Vec<String> = args.collect();
     if patterns.contains(&"--version".to_string()) {
-        println!("version {}", env!("CARGO_PKG_VERSION"));
-        std::process::exit(1);
+        display_version_and_exit();
     }
     if patterns.is_empty() {
         display_help_and_exit();
@@ -145,6 +146,11 @@ fn display_help_and_exit() -> ! {
 if data is passed by the standard input (piped in) then no need to pass log filename
 documentation for the dateformat: https://docs.rs/chrono/0.4.11/chrono/format/strftime."
     );
+    std::process::exit(1);
+}
+
+fn display_version_and_exit() -> ! {
+    println!("version {}", env!("CARGO_PKG_VERSION"));
     std::process::exit(1);
 }
 
