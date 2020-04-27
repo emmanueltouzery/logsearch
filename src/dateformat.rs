@@ -3,84 +3,151 @@
 use chrono::prelude::*;
 use regex::Regex;
 
-type DateTimeParser = fn(&str) -> DateTime<Utc>;
+type DateTimeParser = fn(&str, &str) -> DateTime<Utc>;
 
-const KNOWN_FORMATS: &[(&str, DateTimeParser)] = &[
-    // "23-Apr-2020 00:00:00.001" -- tomee log format
-    (r"[0-2]\d-\w{3}-\d{4} \d\d:\d\d:\d\d\.\d{3}", parse_tomee),
-    // "Apr 26 10:05:02" -- journalctl
-    (r"\w{3} [0-2]\d \d\d:\d\d:\d\d", parse_journalctl),
-    // 10/Oct/2000:13:55:36 -0700 -- apache
-    (
-        r"[0-2]\d/\w{3}/\d{4}:\d\d:\d\d:\d\d [+-]\d{4}",
-        parse_apache,
-    ),
-    // 2014-11-12 16:28:21.700 MST -- postgres
-    (r"\d{4}-\d\d-[0-2]\d \d\d:\d\d:\d\d\.\d{3}", parse_postgres),
-];
-
-fn parse_tomee(str: &str) -> DateTime<Utc> {
-    Utc.from_utc_datetime(
-        &NaiveDateTime::parse_from_str(str, "%d-%b-%Y %T%.3f")
-            .ok()
-            .unwrap(),
-    )
-}
-
-fn parse_journalctl(str: &str) -> DateTime<Utc> {
-    // the year is missing... hopefully there's a better way, but for now...
-    Utc.from_utc_datetime(
-        &NaiveDateTime::parse_from_str(&format!("{}-{}", Local::now().year(), str), "%Y-%b %d %T")
-            .ok()
-            .unwrap(),
-    )
-}
-
-fn parse_apache(str: &str) -> DateTime<Utc> {
-    DateTime::parse_from_str(str, "%d/%b/%Y:%T %z")
-        .ok()
-        .unwrap()
-        .into()
-}
-
-fn parse_postgres(str: &str) -> DateTime<Utc> {
-    Utc.from_utc_datetime(
-        &NaiveDateTime::parse_from_str(str, "%Y-%m-%d %T%.3f")
-            .ok()
-            .unwrap(),
-    )
-}
-
+// i return the format string+the function to call it with.
+// i also had a version with a boxed dyn closure that would
+// take only one parameter, no need for the fmt, but this
+// in theory should be faster (although i couldn't measure it)
 pub struct DateFormat {
-    pub parser: fn(&str) -> DateTime<Utc>,
+    pub fmt: String,
+    pub parser: DateTimeParser,
     pub regex: Regex,
-    pub start_offset: usize,
-    pub end_offset: usize,
 }
+
+const KNOWN_FORMATS: &[&'static str] = &[
+    // "23-Apr-2020 00:00:00.001" -- tomee log format
+    "%d-%b-%Y %T%.3f",
+    // "Apr 26 10:05:02" -- journalctl
+    "%b %d %T",
+    // 10/Oct/2000:13:55:36 -0700 -- apache
+    "%d/%b/%Y:%T %z",
+    // 2014-11-12 16:28:21.700 MST -- postgres
+    "%Y-%m-%d %T%.3f",
+];
 
 pub fn guess_date_format(line: &str) -> Option<DateFormat> {
     let format = KNOWN_FORMATS
-        .iter()
-        .find(|f| Regex::new(f.0).unwrap().is_match(line));
-    format.map(|f| {
-        let regex = Regex::new(f.0).unwrap();
-        let m = regex.find(line).unwrap();
-        DateFormat {
-            parser: f.1,
-            regex,
-            start_offset: m.start(),
-            end_offset: m.end(),
+        .into_iter()
+        .find(|f| regex_for_format_str(f).is_match(line));
+    format.map(|f| build_custom_format(*f))
+}
+
+fn regex_for_format_str(fmt: &str) -> Regex {
+    Regex::new(
+        &fmt.replace("%Y", r"\d{4}")
+            .replace("%C", r"\d\d")
+            .replace("%y", r"\d\d")
+            .replace("%m", r"[0-1]\d")
+            .replace("%B", r"\w")
+            .replace("%A", r"\w")
+            .replace("%h", r"\w{3}")
+            .replace("%a", r"\w{3}")
+            .replace("%d", r"[0-3]\d")
+            .replace("%e", r"[ 1]\d")
+            .replace("%w", r"[0-6]")
+            .replace("%u", r"[1-7]")
+            .replace("%U", r"\d\d")
+            .replace("%W", r"\d\d")
+            .replace("%G", r"\d{4}")
+            .replace("%g", r"\d\d")
+            .replace("%V", r"\d\d")
+            .replace("%j", r"\d{3}")
+            .replace("%D", r"\d\d/\d\d/\d\d")
+            .replace("%x", r"\d\d/\d\d/\d\d")
+            .replace("%F", r"\d{4}-\d\d-\d\d")
+            .replace("%v", r"[ 1]\d-\w{3}-\d{4}")
+            .replace("%H", r"\d\d")
+            .replace("%k", r"[ 1]\d")
+            .replace("%I", r"[01]\d")
+            .replace("%l", r"[ 1]\d")
+            .replace("%P", r"(am|pm)")
+            .replace("%p", r"(AM|PM)")
+            .replace("%M", r"\d\d")
+            .replace("%S", r"\d\d")
+            .replace("%f", r"\d+")
+            .replace("%.f", r"\.\d+")
+            .replace("%.3f", r"\.\d{3}")
+            .replace("%.6f", r"\.\d{6}")
+            .replace("%.9f", r"\.\d{9}")
+            .replace("%3f", r"\d{3}")
+            .replace("%6f", r"\d{6}")
+            .replace("%9f", r"\d{9}")
+            .replace("%R", r"\d\d:\d\d")
+            .replace("%T", r"\d\d:\d\d:\d\d")
+            .replace("%X", r"\d\d:\d\d:\d\d")
+            .replace("%r", r"\d\d:\d\d:\d\d (AM|PM)")
+            .replace("%z", r"[+-]\d{4}")
+            .replace("%:z", r"[+-]\d\d:\d\d")
+            .replace("%#z", r"[+-]\d\d{2,4}")
+            .replace("%s", r"\d+")
+            .replace("%t", "\t")
+            .replace("%n", "\n")
+            .replace("%%", "%")
+            .replace("%b", r"\w{3}"),
+        // skipped %c ctime and %+ iso 8601+rfc3339. they'd better fit as autodetect i think.
+    )
+    .expect(&format!("Invalid format string: {}", fmt))
+}
+
+pub fn build_custom_format(dtfmt: &str) -> DateFormat {
+    let regex = regex_for_format_str(dtfmt);
+    let fmt = dtfmt.to_string();
+    match dtfmt {
+        _ if ["%z", "%:z", "%#z"].iter().any(|p| dtfmt.contains(p)) => {
+            // timezone info is present
+            DateFormat { fmt, parser, regex }
         }
-    })
+        _ if ["%Y", "%C", "%y", "%G", "%g", "%D", "%x", "%F", "%v", "%s"]
+            .iter()
+            .any(|p| dtfmt.contains(p)) =>
+        {
+            // no timezone
+            DateFormat {
+                fmt,
+                parser: parser_no_tz,
+                regex,
+            }
+        }
+        _ => {
+            // no TZ nor year
+            DateFormat {
+                fmt: format!("%Y-{}", fmt),
+                parser: parser_no_tz_no_year,
+                regex,
+            }
+        }
+    }
+}
+
+fn parser(fmt: &str, str: &str) -> DateTime<Utc> {
+    DateTime::parse_from_str(str, fmt).ok().unwrap().into()
+}
+
+fn parser_no_tz(fmt: &str, str: &str) -> DateTime<Utc> {
+    Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(str, fmt).ok().unwrap())
+}
+
+fn parser_no_tz_no_year(fmt: &str, str: &str) -> DateTime<Utc> {
+    Utc.from_utc_datetime(
+        &NaiveDateTime::parse_from_str(&format!("{}-{}", Local::now().year(), str), fmt)
+            .ok()
+            .unwrap(),
+    )
 }
 
 #[cfg(test)]
 fn test_should_guess(line: &str, expected: DateTime<Utc>) {
     let fmt = guess_date_format(line).unwrap();
+    test_should_parse(&fmt, line, expected);
+}
+
+#[cfg(test)]
+fn test_should_parse(fmt: &DateFormat, line: &str, expected: DateTime<Utc>) {
     assert_eq!(true, fmt.regex.is_match(line));
     assert_eq!(
         expected,
-        (fmt.parser)(&line[fmt.start_offset..fmt.end_offset])
+        (fmt.parser)(&fmt.fmt, fmt.regex.find(&line).map(|m| m.as_str()).unwrap())
     );
 }
 
@@ -129,11 +196,38 @@ fn should_guess_postgres2() {
 // https://unix.stackexchange.com/a/26797/36566
 #[test]
 fn should_parse_ts() {
-    let line = "Apr 26 17:12:31 -rw-rw-r-- 1 emmanuel emmanuel 3.5K Apr 26 11:37 Cargo.lock";
-    let fmt = guess_date_format(&line).unwrap();
-    assert_eq!(true, fmt.regex.is_match(&line));
-    assert_eq!(
+    test_should_guess(
+        "Apr 26 17:12:31 -rw-rw-r-- 1 emmanuel emmanuel 3.5K Apr 26 11:37 Cargo.lock",
         Utc.ymd(2020, 4, 26).and_hms(17, 12, 31),
-        (fmt.parser)(&line[fmt.start_offset..fmt.end_offset])
+    );
+}
+
+#[test]
+fn build_custom_fmt() {
+    let fmt = build_custom_format("%Y-%m-%d %T %z");
+    test_should_parse(
+        &fmt,
+        "2019-12-26 17:12:31 +0200 -rw-rw-r-- 1 emmanuel emmanuel 3.5K Apr 26 11:37 Cargo.lock",
+        Utc.ymd(2019, 12, 26).and_hms(15, 12, 31),
+    );
+}
+
+#[test]
+fn build_custom_fmt_notz() {
+    let fmt = build_custom_format("%Y-%m-%d %T");
+    test_should_parse(
+        &fmt,
+        "2019-12-26 17:12:31 -rw-rw-r-- 1 emmanuel emmanuel 3.5K Apr 26 11:37 Cargo.lock",
+        Utc.ymd(2019, 12, 26).and_hms(17, 12, 31),
+    );
+}
+
+#[test]
+fn build_custom_fmt_notz_noyear() {
+    let fmt = build_custom_format("%m-%d %T");
+    test_should_parse(
+        &fmt,
+        "12-26 17:12:31 -rw-rw-r-- 1 emmanuel emmanuel 3.5K Apr 26 11:37 Cargo.lock",
+        Utc.ymd(Local::now().year(), 12, 26).and_hms(17, 12, 31),
     );
 }

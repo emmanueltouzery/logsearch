@@ -31,7 +31,7 @@ fn main() -> std::io::Result<()> {
     let is_piped_output = !atty::is(atty::Stream::Stdout);
     let is_display_preview = is_piped_input && !is_piped_output;
 
-    let patterns: Vec<String> = args.collect();
+    let mut patterns: Vec<String> = args.collect();
     if patterns.contains(&"--version".to_string()) {
         println!("version {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(1);
@@ -39,13 +39,25 @@ fn main() -> std::io::Result<()> {
     if patterns.is_empty() {
         display_help_and_exit();
     }
+    let dtfmt = if let Some(pos) = patterns.iter().position(|p| p == "--dtfmt") {
+        patterns.remove(pos);
+        Some(patterns.remove(pos))
+    } else {
+        None
+    };
 
     let pattern_regexes: Vec<_> = patterns
         .iter()
         .map(|p| Regex::new(&p).expect("Invalid pattern regex"))
         .collect();
 
-    process_input(reader, is_display_preview, &patterns, &pattern_regexes)
+    process_input(
+        reader,
+        is_display_preview,
+        &patterns,
+        &pattern_regexes,
+        dtfmt.as_ref().map(|s| dateformat::build_custom_format(s)),
+    )
 }
 
 struct InRangeState {
@@ -65,23 +77,27 @@ fn process_input(
     is_display_preview: bool,
     patterns: &[String],
     pattern_regexes: &[Regex],
+    dtfmt: Option<dateformat::DateFormat>,
 ) -> std::io::Result<()> {
     let mut lines = reader.lines();
     let mut cur_timestamp = None::<DateTime<Utc>>;
     let mut state = ParsingState::NotInRange;
-    let datefmt = match guess_dateformat(&mut lines)? {
+    let datefmt = match dtfmt {
         Some(f) => f,
-        None => {
-            eprintln!("Gave up guessing the date format");
-            std::process::exit(1);
-        }
+        None => match guess_dateformat(&mut lines)? {
+            Some(f) => f,
+            None => {
+                eprintln!("Gave up guessing the date format. Consider giving the date format through the --dtfmt parameter");
+                std::process::exit(1);
+            }
+        },
     };
 
     for line in lines {
         let line = line?;
         // extract the timestamp from the line if present
         if let Some(timestamp_str) = datefmt.regex.find(&line).map(|m| m.as_str()) {
-            let ts = (datefmt.parser)(timestamp_str);
+            let ts = (datefmt.parser)(&datefmt.fmt, timestamp_str);
             cur_timestamp = Some(ts);
             match state {
                 ParsingState::InRange(ref st) if ts - st.end > chrono::Duration::minutes(5) => {
@@ -124,7 +140,11 @@ fn process_input(
 }
 
 fn display_help_and_exit() -> ! {
-    eprintln!("parameters: <log filename> <pattern> [extra patterns]\nif data is passed by the standard input (piped in) then no need to pass log filename.");
+    eprintln!(
+        "parameters: <log filename> [--dtfmt dateformat] <pattern> [extra patterns]
+if data is passed by the standard input (piped in) then no need to pass log filename
+documentation for the dateformat: https://docs.rs/chrono/0.4.11/chrono/format/strftime."
+    );
     std::process::exit(1);
 }
 
