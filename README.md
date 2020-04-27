@@ -55,3 +55,5 @@ logsearch will also attempt to guess the date format used in the log file, but i
 can give the date format manually through the `--dtfmt` flag. The format must be given in the
 [chrono date format spec](https://docs.rs/chrono/0.4.11/chrono/format/strftime). Pull requests
 for common enough formats are welcome.
+
+logsearch is downloadable as a statically built linux x86-64 binary in the github releases page.
