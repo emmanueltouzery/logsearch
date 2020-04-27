@@ -10,7 +10,7 @@ fn main() -> std::io::Result<()> {
     let mut args = env::args().skip(1);
     // https://stackoverflow.com/a/49964042/516188
     let is_piped_input = !atty::is(atty::Stream::Stdin);
-    let reader: Box<dyn BufRead> = if is_piped_input {
+    let mut reader: Box<dyn BufRead> = if is_piped_input {
         // stdin is not a tty, reading from it
         Box::new(BufReader::new(std::io::stdin()))
     } else {
@@ -52,7 +52,7 @@ fn main() -> std::io::Result<()> {
         .collect();
 
     process_input(
-        reader,
+        &mut reader,
         is_display_preview,
         &patterns,
         &pattern_regexes,
@@ -73,18 +73,18 @@ enum ParsingState {
 }
 
 fn process_input(
-    reader: Box<dyn BufRead>,
+    reader: &mut Box<dyn BufRead>,
     is_display_preview: bool,
     patterns: &[String],
     pattern_regexes: &[Regex],
     dtfmt: Option<dateformat::DateFormat>,
 ) -> std::io::Result<()> {
-    let mut lines = reader.lines();
+    let mut buffer = String::new();
     let mut cur_timestamp = None::<DateTime<Utc>>;
     let mut state = ParsingState::NotInRange;
     let datefmt = match dtfmt {
         Some(f) => f,
-        None => match guess_dateformat(&mut lines)? {
+        None => match guess_dateformat(reader)? {
             Some(f) => f,
             None => {
                 eprintln!("Gave up guessing the date format. Consider giving the date format through the --dtfmt parameter");
@@ -93,10 +93,9 @@ fn process_input(
         },
     };
 
-    for line in lines {
-        let line = line?;
+    while reader.read_line(&mut buffer)? != 0 {
         // extract the timestamp from the line if present
-        if let Some(timestamp_str) = datefmt.regex.find(&line).map(|m| m.as_str()) {
+        if let Some(timestamp_str) = datefmt.regex.find(&buffer).map(|m| m.as_str()) {
             let ts = (datefmt.parser)(&datefmt.fmt, timestamp_str);
             cur_timestamp = Some(ts);
             match state {
@@ -112,7 +111,7 @@ fn process_input(
         // if we have a timestamp, search for one of the patterns in the line
         if let Some(cur_timestamp) = cur_timestamp {
             match (
-                pattern_regexes.iter().position(|p| p.is_match(&line)),
+                pattern_regexes.iter().position(|p| p.is_match(&buffer)),
                 &mut state,
             ) {
                 (Some(idx), ParsingState::InRange(ref mut st)) if idx == st.pattern_idx => {
@@ -131,6 +130,7 @@ fn process_input(
                 (None, _) => {}
             }
         }
+        buffer.clear();
     }
     if let ParsingState::InRange(st) = state {
         // print the final contents of the pattern when the input finishes
@@ -173,13 +173,12 @@ fn start_range(
 }
 
 fn guess_dateformat(
-    lines: &mut std::io::Lines<Box<dyn BufRead>>,
+    reader: &mut Box<dyn BufRead>,
 ) -> std::io::Result<Option<dateformat::DateFormat>> {
+    let mut buffer = String::new();
     let mut datefmt_attempts = 0;
-    for line in lines {
-        let line = line?;
-
-        let datefmt = dateformat::guess_date_format(&line);
+    while reader.read_line(&mut buffer)? != 0 {
+        let datefmt = dateformat::guess_date_format(&buffer);
         if datefmt.is_none() {
             datefmt_attempts += 1;
             if datefmt_attempts >= 5 {
@@ -188,6 +187,7 @@ fn guess_dateformat(
         } else {
             return Ok(datefmt);
         }
+        buffer.clear();
     }
     Ok(None)
 }
