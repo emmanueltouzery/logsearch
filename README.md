@@ -53,5 +53,5 @@ tail -f app.log | logsearch pattern
 
 logsearch will also attempt to guess the date format used in the log file, but if that fails, you
 can give the date format manually through the `--dtfmt` flag. The format must be given in the
-[chrono date format spec](https://docs.rs/chrono/0.4.11/chrono/format/strftime). Pulls requests
+[chrono date format spec](https://docs.rs/chrono/0.4.11/chrono/format/strftime). Pull requests
 for common enough formats are welcome.
