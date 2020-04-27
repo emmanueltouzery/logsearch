@@ -5,10 +5,12 @@ Ability to search for patterns in log files and aggregate them by date.
 This is most useful for log files where the date of the event may not be repeated
 on every line, for instance:
 
+```
 [date] first line
   second line
   third line
 [date2] ...
+```
 
 This is common for instance in java, where logs contain also stacktraces which
 will span multiple lines. In that case, if you grep for a pattern which doesn't
