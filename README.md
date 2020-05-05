@@ -56,4 +56,8 @@ can give the date format manually through the `--dtfmt` flag. The format must be
 [chrono date format spec](https://docs.rs/chrono/0.4.11/chrono/format/strftime). Pull requests
 for common enough formats are welcome.
 
+There is also another option `--mergesecs` to specify what is the maximum
+interval between two events so that they get merged. The default is 5 minutes
+(300 seconds).
+
 logsearch is downloadable as a statically built linux x86-64 binary in the github releases page.

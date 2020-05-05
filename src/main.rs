@@ -40,12 +40,8 @@ fn main() -> std::io::Result<()> {
     if patterns.is_empty() {
         display_help_and_exit();
     }
-    let dtfmt = if let Some(pos) = patterns.iter().position(|p| p == "--dtfmt") {
-        patterns.remove(pos);
-        Some(patterns.remove(pos))
-    } else {
-        None
-    };
+    let dtfmt = get_param(&mut patterns, "--dtfmt");
+    let mergesecs = get_param(&mut patterns, "--mergesecs").and_then(|s| s.parse::<i64>().ok());
 
     let pattern_regexes: Vec<_> = patterns
         .iter()
@@ -58,7 +54,17 @@ fn main() -> std::io::Result<()> {
         &patterns,
         &pattern_regexes,
         dtfmt.as_ref().map(|s| dateformat::build_custom_format(s)),
+        mergesecs.unwrap_or(5 * 60),
     )
+}
+
+fn get_param(params: &mut Vec<String>, name: &str) -> Option<String> {
+    if let Some(pos) = params.iter().position(|p| p == name) {
+        params.remove(pos);
+        Some(params.remove(pos))
+    } else {
+        None
+    }
 }
 
 struct InRangeState {
@@ -79,6 +85,7 @@ fn process_input(
     patterns: &[String],
     pattern_regexes: &[Regex],
     dtfmt: Option<dateformat::DateFormat>,
+    mergesecs: i64,
 ) -> std::io::Result<()> {
     let mut buffer = String::new();
     let mut cur_timestamp = None::<DateTime<Utc>>;
@@ -100,7 +107,9 @@ fn process_input(
             let ts = (datefmt.parser)(&datefmt.fmt, timestamp_str);
             cur_timestamp = Some(ts);
             match state {
-                ParsingState::InRange(ref st) if ts - st.end > chrono::Duration::minutes(5) => {
+                ParsingState::InRange(ref st)
+                    if ts - st.end > chrono::Duration::seconds(mergesecs) =>
+                {
                     // too long interval, close the current range
                     print_pattern(is_display_preview, &st, &patterns);
                     state = ParsingState::NotInRange;
@@ -142,7 +151,7 @@ fn process_input(
 
 fn display_help_and_exit() -> ! {
     eprintln!(
-        "parameters: <log filename> [--dtfmt dateformat] <pattern> [extra patterns]
+        "parameters: <log filename> [--dtfmt dateformat] [--mergesecs seconds] <pattern> [extra patterns]
 if data is passed by the standard input (piped in) then no need to pass log filename
 documentation for the dateformat: https://docs.rs/chrono/0.4.11/chrono/format/strftime."
     );
