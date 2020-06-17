@@ -48,7 +48,7 @@ cat *.log | logsearch pattern
 Or to consume gzipped files:
 
 ```
-gunzip -c myfile.log.gz | logsearch pattern
+zcat myfile.log.gz | logsearch pattern
 ```
 
 And this operation will also work if the log file is still being updated:
